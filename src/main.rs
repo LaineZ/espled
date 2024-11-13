@@ -1,51 +1,64 @@
-use esp_idf_hal::delay::FreeRtos;
-use esp_idf_hal::ledc::*;
-use esp_idf_hal::peripherals::Peripherals;
-use esp_idf_hal::prelude::*;
-use esp_idf_hal::sys::esp_random;
+pub mod serial_configuration;
+use std::io::BufRead;
 
-fn rand_f32() -> f32 {
-    let rng;
-    unsafe { rng = esp_random() as f32 / u32::MAX as f32; }
-    rng
+use esp_idf_hal::delay::FreeRtos;
+use esp_idf_hal::{delay, gpio, prelude::*};
+use esp_idf_svc::eventloop::EspSystemEventLoop;
+use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, EspNvsPartition, NvsDefault};
+use esp_idf_svc::wifi::ClientConfiguration;
+use serial_configuration::execute_command;
+use server::Server;
+
+pub mod server;
+pub mod rgb;
+
+fn nvs_get_string(key: &str, nvs: EspNvsPartition<NvsDefault>) -> String {
+    let mut buffer: [u8; 128] = [0; 128];
+    let nvs_wifi = EspNvs::new(nvs, "wifi", true).unwrap();
+    let stro4ka = nvs_wifi.get_str(key, &mut buffer).unwrap_or_default();
+    return stro4ka.unwrap_or_default().to_string();
 }
 
 fn main() -> anyhow::Result<()> {
     esp_idf_hal::sys::link_patches();
-
-    println!("Configuring output channel");
-    let timer_config = config::TimerConfig::new().frequency(25.kHz().into());
+    let sys_loop = EspSystemEventLoop::take()?;
+    let nvs = EspDefaultNvsPartition::take()?;
     let peripherals = Peripherals::take()?;
-    let ledc_timer_driver_b = LedcTimerDriver::new(peripherals.ledc.timer0, &timer_config)?;
-    let ledc_timer_driver_r = LedcTimerDriver::new(peripherals.ledc.timer1, &timer_config)?;
-    let ledc_timer_driver_g = LedcTimerDriver::new(peripherals.ledc.timer2, &timer_config)?;
+    let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
 
-
-    let mut channel_b = LedcDriver::new(
-        peripherals.ledc.channel0,
-        ledc_timer_driver_b,
-        peripherals.pins.gpio2,
-    )?;
-    
-    let mut channel_g = LedcDriver::new(
-        peripherals.ledc.channel1,
-        ledc_timer_driver_r,
-        peripherals.pins.gpio3,
-    )?;
-
-    let mut channel_r = LedcDriver::new(
-        peripherals.ledc.channel2,
-        ledc_timer_driver_g,
-        peripherals.pins.gpio10
-    )?;
-    println!("Starting duty-cycle loop");
-
-    let max_duty = channel_b.get_max_duty();
+    server.connect(sys_loop, ClientConfiguration {
+        ssid: nvs_get_string("ssid", nvs.clone()).as_str().try_into().unwrap_or_default(),
+        password: nvs_get_string("password", nvs.clone()).as_str().try_into().unwrap_or_default(),
+        ..Default::default()
+    }).unwrap_or_else(|op| println!("Wi-Fi connection error: {op}. I sorry about that..."));
 
     loop {
-        FreeRtos::delay_ms(1000);
-        channel_r.set_duty((rand_f32() * max_duty as f32) as u32)?;
-        channel_g.set_duty((rand_f32() * max_duty as f32) as u32)?;
-        channel_b.set_duty((rand_f32() * max_duty as f32) as u32)?;
+        FreeRtos::delay_ms(10);
+        let mut buffer = String::new();
+        let stdin = std::io::stdin();
+        let mut handle = stdin.lock();
+
+        match handle.read_line(&mut buffer) {
+            Ok(_) => {
+                if let Err(error) = execute_command(buffer, nvs.clone()) {
+                    println!("Error occured while executing the command: {error}");
+                }
+            }
+            Err(e) => {
+                match e.kind() {
+                    std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::Interrupted => {
+                        log::info!("Error: {e}\r\n");
+                        FreeRtos::delay_ms(10);
+                        continue;
+                    }
+                    _ => {
+                        log::info!("Error: {e}\r\n");
+                        continue;
+                    }
+                }
+            }
+        }
     }
 }

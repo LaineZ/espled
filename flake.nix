@@ -28,8 +28,10 @@
             riscvToolchain
             espflash
             python3
+            python3Packages.pyserial
             llvmPackages_19.libclang
             ldproxy
+            screen
           ];
 
           #RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";

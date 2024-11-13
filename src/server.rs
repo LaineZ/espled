@@ -8,14 +8,10 @@ use esp_idf_svc::{
     hal::modem::Modem,
     http::{self, server::EspHttpServer},
     io::Read,
-    nvs::{EspNvsPartition, NvsDefault},
     wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWifi},
 };
 
-use crate::{
-    credentials,
-    rgb::{RGBLedColor, RGBRequest},
-};
+use crate::rgb::{RGBLedColor, RGBRequest};
 
 pub struct Server<'a> {
     httpserver: EspHttpServer<'a>,
@@ -31,13 +27,10 @@ impl Server<'_> {
         })
     }
 
-    pub fn connect(&mut self, sys_loop: EspEventLoop<System>) -> anyhow::Result<()> {
+    pub fn connect(&mut self, sys_loop: EspEventLoop<System>, configuration: ClientConfiguration) -> anyhow::Result<()> {
+        println!("Connecting to: {}", configuration.ssid);
         let mut wifi = BlockingWifi::wrap(&mut self.wifi_driver, sys_loop)?;
-        wifi.set_configuration(&Configuration::Client(ClientConfiguration {
-            ssid: credentials::SSID.try_into().unwrap(),
-            password: credentials::PASSWORD.try_into().unwrap(),
-            ..Default::default()
-        }))?;
+        wifi.set_configuration(&Configuration::Client(configuration))?;
         wifi.start()?;
         wifi.connect()?;
         wifi.wait_netif_up()?;
