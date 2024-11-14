@@ -8,6 +8,11 @@ use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, EspNvsPartition, NvsDefau
 use esp_idf_svc::wifi::ClientConfiguration;
 use serial_configuration::parse_argument;
 use server::Server;
+use esp_idf_hal::ledc::config::TimerConfig;
+use esp_idf_hal::ledc::{LedcTimerDriver, LedcDriver};
+
+use crate::rgbcontrol::RgbControl;
+use crate::rgb::RGBLedColor;
 
 pub mod rgb;
 pub mod server;
@@ -26,6 +31,33 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
     let peripherals = Peripherals::take()?;
     let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
+
+    // led initialization
+    let timer_config = TimerConfig::new().frequency(25.kHz().into());
+    
+    let ledc_timer_driver_b = LedcTimerDriver::new(peripherals.ledc.timer0, &timer_config)?;
+    let ledc_timer_driver_r = LedcTimerDriver::new(peripherals.ledc.timer1, &timer_config)?;
+    let ledc_timer_driver_g = LedcTimerDriver::new(peripherals.ledc.timer2, &timer_config)?;
+
+    let channel_b = LedcDriver::new(
+        peripherals.ledc.channel0,
+        ledc_timer_driver_b,
+        peripherals.pins.gpio2,
+    )?;
+
+    let channel_g = LedcDriver::new(
+        peripherals.ledc.channel1,
+        ledc_timer_driver_r,
+        peripherals.pins.gpio3,
+    )?;
+
+    let channel_r = LedcDriver::new(
+        peripherals.ledc.channel2,
+        ledc_timer_driver_g,
+        peripherals.pins.gpio10,
+    )?;
+
+    let mut controller = RgbControl::new(channel_r, channel_g, channel_b);
 
     server
         .connect(
@@ -68,7 +100,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     "rgbcolor" | "color" => {
                         let color = u32::from_str_radix(&parse_argument(trailing.as_str(), 0)?, 16)?;
-
+                        controller.set_color(RGBLedColor::new_from_u32(color))?;
                         Ok(())
                     }
                     _ => {
