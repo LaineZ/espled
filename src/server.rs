@@ -27,7 +27,11 @@ impl Server<'_> {
         })
     }
 
-    pub fn connect(&mut self, sys_loop: EspEventLoop<System>, configuration: ClientConfiguration) -> anyhow::Result<()> {
+    pub fn connect(
+        &mut self,
+        sys_loop: EspEventLoop<System>,
+        configuration: ClientConfiguration,
+    ) -> anyhow::Result<()> {
         println!("Connecting to: {}", configuration.ssid);
         let mut wifi = BlockingWifi::wrap(&mut self.wifi_driver, sys_loop)?;
         wifi.set_configuration(&Configuration::Client(configuration))?;
