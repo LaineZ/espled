@@ -1,11 +1,3 @@
-use anyhow::bail;
-
-#[derive(Copy, Clone)]
-pub enum RequestType {
-    SetColor = 0,
-    SetEffect = 1,
-}
-
 #[derive(Copy, Clone, Default)]
 pub struct RGBLedColor {
     pub red: u8,
@@ -37,29 +29,20 @@ impl RGBLedColor {
 
 #[derive(Copy, Clone)]
 pub struct RGBRequest {
-    pub request_type: RequestType,
     pub color: RGBLedColor,
 }
 
 impl RGBRequest {
-    pub fn new(bytes: [u8; 4]) -> anyhow::Result<Self> {
-        unsafe {
-            if bytes[0] > 0 {
-                bail!("пакет говна, иди в пизду")
-            }
-
-            Ok(Self {
-                color: RGBLedColor::new(bytes[1], bytes[2], bytes[3]),
-                request_type: std::mem::transmute::<u8, RequestType>(bytes[0]),
-            })
-        }
+    pub fn new(bytes: [u8; 3]) -> anyhow::Result<Self> {
+        Ok(Self {
+            color: RGBLedColor::new(bytes[0], bytes[1], bytes[2]),
+        })
     }
 }
 
 impl Default for RGBRequest {
     fn default() -> Self {
         Self {
-            request_type: RequestType::SetColor,
             color: RGBLedColor::default(),
         }
     }

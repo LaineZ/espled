@@ -2,11 +2,12 @@
 
 pub mod serial_configuration;
 use std::io::BufRead;
+use std::sync::{Arc, Mutex};
 
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::ledc::config::TimerConfig;
 use esp_idf_hal::ledc::{LedcDriver, LedcTimerDriver};
-use esp_idf_hal::{delay, gpio, prelude::*};
+use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, EspNvsPartition, NvsDefault};
 use esp_idf_svc::wifi::ClientConfiguration;
@@ -32,7 +33,6 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let peripherals = Peripherals::take()?;
-    let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
 
     // led initialization
     let timer_config = TimerConfig::new().frequency(25.kHz().into());
@@ -59,9 +59,18 @@ fn main() -> anyhow::Result<()> {
         peripherals.pins.gpio10,
     )?;
 
-    let mut controller = RgbControl::new(channel_r, channel_g, channel_b, nvs.clone());
-    controller.init()?;
+    let controller = Arc::new(Mutex::new(RgbControl::new(
+        channel_r,
+        channel_g,
+        channel_b,
+        nvs.clone(),
+    )));
 
+    let mut controller_lock = controller.lock().unwrap();
+    controller_lock.init()?;
+    drop(controller_lock);
+
+    let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
     server
         .connect(
             sys_loop,
@@ -79,6 +88,8 @@ fn main() -> anyhow::Result<()> {
         )
         .unwrap_or_else(|op| println!("Wi-Fi connection error: {op}. I sorry about that..."));
 
+    server.handle_response(controller.clone())?;
+
     let mut nvs_handle = EspNvs::new(nvs.clone(), "wifi", true)?;
     loop {
         FreeRtos::delay_ms(10);
@@ -91,6 +102,7 @@ fn main() -> anyhow::Result<()> {
                 let mut split = buffer.split_whitespace();
                 let command = split.next().unwrap_or_default();
                 let trailing = split.collect::<Vec<&str>>().join(" ");
+                let controller_clone = controller.clone();
                 let command_result: anyhow::Result<()> = try {
                     match command {
                         "wifi" | "wifisetup" | "ws" => {
@@ -100,10 +112,11 @@ fn main() -> anyhow::Result<()> {
                             nvs_handle.set_str("password", &password)?;
                             println!("Settings saved! Please restart device to apply changes!");
                         }
-                        "rgbcolor" | "color" => {
+                        "rgbcolor" | "color" | "setcolor" | "clr" => {
                             let color =
                                 u32::from_str_radix(&parse_argument(trailing.as_str(), 0)?, 16)?;
-                            controller.set_color(RGBLedColor::new_from_u32(color))?;
+                            let mut controller_lock = controller_clone.lock().unwrap();
+                            controller_lock.set_color(RGBLedColor::new_from_u32(color))?;
                             println!("Color set");
                         }
                         _ => {

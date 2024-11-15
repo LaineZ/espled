@@ -29,6 +29,7 @@
             espflash
             python3
             python3Packages.pyserial
+            python3Packages.requests
             llvmPackages_19.libclang
             ldproxy
             screen

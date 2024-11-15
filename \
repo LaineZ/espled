@@ -5,12 +5,12 @@ use esp_idf_svc::nvs::{EspNvs, EspNvsPartition, NvsDefault};
 const RED_MULTIPLIER: u32 = 255;
 const GREEN_MULTIPLIER: u32 = 255;
 const BLUE_MULTIPLIER: u32 = 255;
-const MULTIPLIER_DIVISOR: u32 = 255;
 
 pub struct RgbControl {
     pwm_r: LedcDriver<'static>,
     pwm_g: LedcDriver<'static>,
     pwm_b: LedcDriver<'static>,
+    brightness: u8,
     nvs: EspNvsPartition<NvsDefault>,
     color: RGBLedColor,
 }
@@ -27,6 +27,7 @@ impl RgbControl {
             pwm_g,
             pwm_b,
             nvs,
+            brightness: 255,
             color: RGBLedColor::default(),
         }
     }
@@ -54,17 +55,18 @@ impl RgbControl {
         Ok(())
     }
 
+    pub fn set_brightness(&mut self, brightness: u8) -> anyhow::Result<()> {
+        self.brightness = brightness;
+        let nvs_rgb = EspNvs::new(self.nvs.clone(), "rgb", true).unwrap();
+        nvs_rgb.set_u8("brightness", brightness)?;
+        Ok(())
+    }
+
     fn set_color_pwm(&mut self) -> anyhow::Result<()> {
         let max_duty = self.pwm_r.get_max_duty();
-        self.pwm_r.set_duty(
-            self.color.red as u32 * RED_MULTIPLIER / MULTIPLIER_DIVISOR * max_duty / 255,
-        )?;
-        self.pwm_g.set_duty(
-            self.color.green as u32 * GREEN_MULTIPLIER / MULTIPLIER_DIVISOR * max_duty / 255,
-        )?;
-        self.pwm_b.set_duty(
-            self.color.blue as u32 * BLUE_MULTIPLIER / MULTIPLIER_DIVISOR * max_duty / 255,
-        )?;
+        self.pwm_r.set_duty(self.color.red as u32 * RED_MULTIPLIER / (self.brightness as u32) * max_duty / 255)?;
+        self.pwm_g.set_duty(self.color.green as u32 * GREEN_MULTIPLIER / (self.brightness as u32) * max_duty / 255)?;
+        self.pwm_b.set_duty(self.color.blue as u32 * BLUE_MULTIPLIER / (self.brightness as u32) * max_duty / 255)?;
         Ok(())
     }
 }
