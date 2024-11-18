@@ -119,6 +119,9 @@ fn main() -> anyhow::Result<()> {
                             controller_lock.set_color(RGBLedColor::new_from_u32(color))?;
                             println!("Color set");
                         }
+                        "restart" | "reboot" => {
+                           esp_idf_hal::reset::restart(); 
+                        }
                         _ => {
                             println!("Unknown command {command}")
                         }
