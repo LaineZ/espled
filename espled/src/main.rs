@@ -21,6 +21,8 @@ pub mod rgb;
 pub mod rgbcontrol;
 pub mod server;
 
+const static NAME: &str = "LentO'Chka";
+
 fn nvs_get_string(key: &str, nvs: EspNvsPartition<NvsDefault>) -> String {
     let mut buffer: [u8; 128] = [0; 128];
     let nvs_wifi = EspNvs::new(nvs, "wifi", true).unwrap();
@@ -118,6 +120,9 @@ fn main() -> anyhow::Result<()> {
                             let mut controller_lock = controller_clone.lock().unwrap();
                             controller_lock.set_color(RGBLedColor::new_from_u32(color))?;
                             println!("Color set");
+                        },
+                        "name" => {
+                            println!("name: {NAME}")
                         }
                         "restart" | "reboot" => {
                            esp_idf_hal::reset::restart(); 

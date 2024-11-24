@@ -1,0 +1,10 @@
+[package]
+name = "espled-gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.93"
+eframe = "0.29.1"
+egui_extras = "0.29.1"
+serialport = "4.6"
