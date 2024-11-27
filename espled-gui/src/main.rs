@@ -34,7 +34,7 @@ impl MyEguiApp {
     fn process(&mut self, ctx: &egui::Context) {
         let controllers = self.control_thread.get_controllers();
 
-        if controllers.len() == 0 && self.control_thread.status() == ChannelStatus::Done {
+        if controllers.len() == 0 {
             self.control_thread.discover_controllers();
         }
 
@@ -66,7 +66,7 @@ impl eframe::App for MyEguiApp {
                         for controller in self.control_thread.get_controllers() {
                             body.row(16.0, |mut row| {
                                 row.col(|ui| {
-                                    ui.label(controller);
+                                    ui.button(controller.name);
                                 });
                             });
                         }
@@ -90,7 +90,7 @@ impl eframe::App for MyEguiApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Please select MCU connection from list");
+            ui.heading("Please select MCLU connection from list");
         });
 
         egui::TopBottomPanel::bottom("my_bottom_panel").show(ctx, |ui| {
