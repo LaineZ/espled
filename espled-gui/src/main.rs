@@ -1,10 +1,18 @@
 use control_thread::{ChannelStatus, ControlChannel};
-use eframe::egui::{self, vec2};
+use eframe::egui::{self, vec2, widgets};
 use egui_extras::{Column, TableBuilder};
 use views::{connection::ConnectionView, ToggledViewManager, View};
 
 pub mod control_thread;
 pub mod views;
+
+fn color_to_u32(color: [f32; 3]) -> u32 {
+    let r = (color[0].clamp(0.0, 1.0) * 255.0) as u32;
+    let g = (color[1].clamp(0.0, 1.0) * 255.0) as u32;
+    let b = (color[2].clamp(0.0, 1.0) * 255.0) as u32;
+
+    (r << 16) | (g << 8) | b
+}
 
 fn main() {
     let native_options = eframe::NativeOptions::default();
@@ -20,6 +28,7 @@ struct MyEguiApp {
     connection_view: ToggledViewManager,
     message_dialog: views::message::Message,
     control_thread: ControlChannel,
+    selected_controller_index: Option<usize>,
 }
 
 impl MyEguiApp {
@@ -28,6 +37,7 @@ impl MyEguiApp {
             connection_view: ToggledViewManager::new(Box::new(ConnectionView::default())),
             message_dialog: views::message::Message::default(),
             control_thread: ControlChannel::new(),
+            selected_controller_index: Some(0),
         }
     }
 
@@ -63,10 +73,14 @@ impl eframe::App for MyEguiApp {
                 TableBuilder::new(ui)
                     .column(Column::auto().resizable(false))
                     .body(|mut body| {
-                        for controller in self.control_thread.get_controllers() {
+                        for (index, controller) in
+                            self.control_thread.get_controllers().iter().enumerate()
+                        {
                             body.row(16.0, |mut row| {
                                 row.col(|ui| {
-                                    ui.button(controller.name);
+                                    if ui.button(&controller.name).clicked() {
+                                        self.selected_controller_index = Some(index);
+                                    }
                                 });
                             });
                         }
@@ -90,7 +104,15 @@ impl eframe::App for MyEguiApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Please select MCLU connection from list");
+            if let Some(index) = self.selected_controller_index {
+                let mut rgb = [0.0, 0.0, 0.0];
+                ui.horizontal(|ui| {
+                    ui.label("Color:");
+                    widgets::color_picker::color_edit_button_rgb(ui, &mut rgb);
+                });
+            } else {
+                ui.heading("Please select MCLU connection from list");
+            }
         });
 
         egui::TopBottomPanel::bottom("my_bottom_panel").show(ctx, |ui| {
