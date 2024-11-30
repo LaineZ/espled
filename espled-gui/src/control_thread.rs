@@ -29,13 +29,12 @@ pub struct Controller {
 
 impl Controller {
     pub fn apply_color(&self, color: u32) {
-        if let Ok(port) = serialport::new(self.serial_path.clone(), 115200)
+        if let Ok(mut port) = serialport::new(self.serial_path.clone(), 115200)
             .timeout(Duration::from_millis(100))
             .open()
         {
             let color = format!("color {:x}\n", color);
-            let mut clone = port.try_clone().expect("Failed to clone!");
-            std::thread::spawn(move || clone.write(color.as_bytes()).unwrap());
+            port.write(color.as_bytes()).unwrap();
         }
     }
 }

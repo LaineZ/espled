@@ -1,18 +1,10 @@
-use control_thread::{ChannelStatus, ControlChannel};
+use control_thread::{ChannelStatus, ControlChannel, Controller};
 use eframe::egui::{self, vec2, widgets};
 use egui_extras::{Column, TableBuilder};
-use views::{connection::ConnectionView, ToggledViewManager, View};
+use views::{connection::ConnectionView, editor::EditorView, ToggledViewManager, View};
 
 pub mod control_thread;
 pub mod views;
-
-fn color_to_u32(color: [f32; 3]) -> u32 {
-    let r = (color[0].clamp(0.0, 1.0) * 255.0) as u32;
-    let g = (color[1].clamp(0.0, 1.0) * 255.0) as u32;
-    let b = (color[2].clamp(0.0, 1.0) * 255.0) as u32;
-
-    (r << 16) | (g << 8) | b
-}
 
 fn main() {
     let native_options = eframe::NativeOptions::default();
@@ -26,18 +18,20 @@ fn main() {
 
 struct MyEguiApp {
     connection_view: ToggledViewManager,
+    editor_view: EditorView,
     message_dialog: views::message::Message,
     control_thread: ControlChannel,
-    selected_controller_index: Option<usize>,
+    selected_controller: Option<Controller>,
 }
 
 impl MyEguiApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             connection_view: ToggledViewManager::new(Box::new(ConnectionView::default())),
+            editor_view: EditorView::default(),
             message_dialog: views::message::Message::default(),
             control_thread: ControlChannel::new(),
-            selected_controller_index: Some(0),
+            selected_controller: None,
         }
     }
 
@@ -79,7 +73,7 @@ impl eframe::App for MyEguiApp {
                             body.row(16.0, |mut row| {
                                 row.col(|ui| {
                                     if ui.button(&controller.name).clicked() {
-                                        self.selected_controller_index = Some(index);
+                                        self.selected_controller = Some(controller.clone());
                                     }
                                 });
                             });
@@ -104,12 +98,9 @@ impl eframe::App for MyEguiApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(index) = self.selected_controller_index {
-                let mut rgb = [0.0, 0.0, 0.0];
-                ui.horizontal(|ui| {
-                    ui.label("Color:");
-                    widgets::color_picker::color_edit_button_rgb(ui, &mut rgb);
-                });
+            if let Some(controller) = self.selected_controller.clone() {
+                self.editor_view.ui(ui);
+                controller.apply_color(self.editor_view.get_color());
             } else {
                 ui.heading("Please select MCLU connection from list");
             }

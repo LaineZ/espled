@@ -2,6 +2,7 @@ use eframe::egui;
 use std::any::Any;
 
 pub mod connection;
+pub mod editor;
 pub mod message;
 
 pub trait View {
