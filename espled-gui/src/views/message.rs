@@ -29,6 +29,10 @@ impl Message {
         self.content = message.to_string();
         self.dialog_type = dialog_type;
     }
+    
+    pub fn hide(&mut self) {
+        self.content = String::new();
+    }
 
     pub fn display(&mut self, ctx: &egui::Context) {
         if self.content.is_empty() {

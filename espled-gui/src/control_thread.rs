@@ -1,13 +1,11 @@
 use std::{
-    sync::{
+    fmt::write, io::{BufRead, BufReader}, sync::{
         mpsc::{self, Receiver, Sender},
         Arc,
-    },
-    thread,
-    time::Duration,
+    }, thread, time::Duration
 };
 
-use serialport;
+use serialport::{self, SerialPortInfo};
 use std::sync::Mutex;
 
 #[derive(Debug, PartialEq)]
@@ -15,9 +13,9 @@ pub enum Command {
     ProbeControllersOnSerials,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ChannelStatus {
-    ProbingControllers,
+    ProbingControllers(String),
     Done,
 }
 
@@ -48,10 +46,8 @@ impl std::fmt::Display for Controller {
 impl std::fmt::Display for ChannelStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChannelStatus::ProbingControllers => {
-                write!(f, "Probing controllers on serial ports in progress...")
-            }
             ChannelStatus::Done => write!(f, "Done"),
+            ChannelStatus::ProbingControllers(serial_name) => write!(f, "Probing controller on address: {serial_name}"),
             _ => write!(f, "Please wait.."),
         }
     }
@@ -60,6 +56,7 @@ impl std::fmt::Display for ChannelStatus {
 pub struct ControlChannel {
     sender: Sender<Command>,
     controllers: Arc<Mutex<Vec<Controller>>>,
+    last_status: ChannelStatus,
     status_rx: Receiver<ChannelStatus>,
 }
 
@@ -77,13 +74,20 @@ impl ControlChannel {
             match rx.recv() {
                 Ok(msg) => match msg {
                     Command::ProbeControllersOnSerials => {
-                        let _ = status_tx_clone
-                            .send(ChannelStatus::ProbingControllers)
-                            .unwrap();
-                        let controller_list = probe_controllers_on_serial_ports();
-                        let mut controller_lock = controller_clone.lock().unwrap();
-                        *controller_lock = controller_list;
-                        drop(controller_lock);
+                        let ports = serialport::available_ports().unwrap();
+                        for p in ports {
+                            let _ = status_tx_clone
+                                .send(ChannelStatus::ProbingControllers(p.clone().port_name))
+                                .unwrap();
+
+                            if let Some(controller) = probe_controller_on_serial_port(p.clone()) {
+                                let mut controller_lock = controller_clone.lock().unwrap();
+                                if controller_lock.iter().find(|x: &&Controller| x.serial_path == p.port_name).is_none() {
+                                    controller_lock.push(controller);
+                                } 
+                                drop(controller_lock);
+                            }
+                        }
                         let _ = status_tx_clone.send(ChannelStatus::Done);
                     }
                 },
@@ -97,6 +101,7 @@ impl ControlChannel {
             sender: tx,
             status_rx,
             controllers,
+            last_status: ChannelStatus::Done,
         }
     }
 
@@ -110,64 +115,59 @@ impl ControlChannel {
         let lock = self.controllers.try_lock();
         match lock {
             Ok(t) => return t.clone(),
-            Err(_) => return Vec::new(),
+            Err(err) => {
+                println!("Cant lock: {err}");
+                return Vec::new();
+            }
         }
     }
 
-    pub fn status(&self) -> ChannelStatus {
+    pub fn status(&mut self) -> ChannelStatus {
         if let Ok(message) = self.status_rx.try_recv() {
-            return message;
-        } else {
-            return ChannelStatus::Done;
+            self.last_status = message;
         }
+
+        self.last_status.clone()
     }
 }
 
-pub fn probe_controllers_on_serial_ports() -> Vec<Controller> {
-    let ports = serialport::available_ports().unwrap();
-    let mut espshki = Vec::new();
-    for p in ports {
-        if let Ok(mut port) = serialport::new(p.port_name.clone(), 115200)
-            .timeout(Duration::from_millis(1000))
-            .open()
-        {
-            let mut clone = port.try_clone().expect("Failed to clone!");
-            std::thread::spawn(move || clone.write("name\n".as_bytes()).unwrap());
-            let mut fails = 0;
-            loop {
-                let mut buffer: [u8; 255] = [0; 255];
-                match port.read(&mut buffer) {
-                    Ok(_) => {
-                        let string = String::from_utf8_lossy(&buffer).into_owned();
-                        let string = string.trim();
-                        //println!("{string}");
-                        if string.contains("ame:") {
-                            let split = string.split(":");
-                            let device_name = split.last().unwrap_or("name");
-                            if device_name != "name" {
-                                let device_name_normal =
-                                    device_name.replace("\0", "").trim().to_string();
-                                espshki.push(Controller {
-                                    name: device_name_normal,
-                                    serial_path: port.name().unwrap_or_default(),
-                                });
-                                break;
-                            }
+pub fn probe_controller_on_serial_port(p: SerialPortInfo) -> Option<Controller> {
+    if let Ok(mut port) = serialport::new(p.port_name.clone(), 115200)
+        .timeout(Duration::from_millis(1000))
+        .open()
+    {
+        let _ = port.write_all("name\n".as_bytes());
+        let mut fails = 0;
+
+        loop {
+            let mut reader = BufReader::new(port.try_clone().expect("Failed to clone port"));
+            let mut response = String::new();
+            let _ = port.write("name\n".as_bytes());
+            match reader.read_line(&mut response) {
+                Ok(_) => {
+                    println!("{response}");
+                    if response.contains("ame:") {
+                        let device_name = response.split(':').last().unwrap_or("");
+                        let device_name_clean = device_name.replace("\0", "").trim().to_string();
+                        if !device_name_clean.is_empty() && device_name_clean != "" {
+                            println!("FOUND CONTROLLER: {:?}", p.port_name);
+                            return Some(Controller {
+                                name: device_name_clean,
+                                serial_path: port.name().unwrap_or_default(),
+                            });
                         }
                     }
-
-                    Err(_) => {}
                 }
-
-                fails += 1;
-
-                if fails > 5 {
-                    println!("WARN: Failure to read name from: {}", p.port_name);
-                    break;
+                Err(_) => {
+                    fails += 1;
+                    if fails > 5 {
+                        println!("WARN: Failure to read name from: {}", p.port_name);
+                        return None;
+                    }
                 }
             }
         }
     }
 
-    espshki
+    None
 }
