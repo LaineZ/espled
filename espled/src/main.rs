@@ -1,9 +1,10 @@
 #![feature(try_blocks)]
 
 pub mod serial_configuration;
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 use std::sync::{Arc, Mutex};
 
+use effects::ParameterTypes;
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::ledc::config::TimerConfig;
 use esp_idf_hal::ledc::{LedcDriver, LedcTimerDriver};
@@ -11,17 +12,27 @@ use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, EspNvsPartition, NvsDefault};
 use esp_idf_svc::wifi::ClientConfiguration;
-use serial_configuration::parse_argument;
+use serde::{Deserialize, Serialize};
 use server::Server;
 
-use crate::rgb::RGBLedColor;
 use crate::rgbcontrol::RgbControl;
 
+pub mod effects;
 pub mod rgb;
 pub mod rgbcontrol;
 pub mod server;
 
-const static NAME: &str = "LentO'Chka";
+const NAME: &str = "LentO'Chka";
+
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Request {
+    GetEffects,
+    GetEffect,
+    GetParameters,
+    SetEffect(usize),
+    SetOption(String, ParameterTypes),
+}
 
 fn nvs_get_string(key: &str, nvs: EspNvsPartition<NvsDefault>) -> String {
     let mut buffer: [u8; 128] = [0; 128];
@@ -93,63 +104,34 @@ fn main() -> anyhow::Result<()> {
     server.handle_response(controller.clone())?;
 
     let mut nvs_handle = EspNvs::new(nvs.clone(), "wifi", true)?;
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+    let mut buffer = Vec::new();
+    let mut byte = [0u8; 1];
+
+
     loop {
-        FreeRtos::delay_ms(10);
-        let mut buffer = String::new();
-        let stdin = std::io::stdin();
-        let mut handle = stdin.lock();
-
-        match handle.read_line(&mut buffer) {
+        match handle.read_exact(&mut byte) {
             Ok(_) => {
-                let mut split = buffer.split_whitespace();
-                let command = split.next().unwrap_or_default();
-                let trailing = split.collect::<Vec<&str>>().join(" ");
-                let controller_clone = controller.clone();
-                let command_result: anyhow::Result<()> = try {
-                    match command {
-                        "wifi" | "wifisetup" | "ws" => {
-                            let ssid = parse_argument(trailing.as_str(), 0)?;
-                            let password = parse_argument(trailing.as_str(), 1)?;
-                            nvs_handle.set_str("ssid", &ssid)?;
-                            nvs_handle.set_str("password", &password)?;
-                            println!("Settings saved! Please restart device to apply changes!");
+                if byte[0] == 0 {
+                    if let Ok(json) = String::from_utf8(buffer.clone()) {
+                        match serde_json::from_str::<Request>(&json) {
+                            Ok(data) => println!("Received: {:?}", data),
+                            Err(e) => eprintln!("Failed to parse JSON: {}", e),
                         }
-                        "rgbcolor" | "color" | "setcolor" | "clr" => {
-                            let color =
-                                u32::from_str_radix(&parse_argument(trailing.as_str(), 0)?, 16)?;
-                            let mut controller_lock = controller_clone.lock().unwrap();
-                            controller_lock.set_color(RGBLedColor::new_from_u32(color))?;
-                            println!("Color set");
-                        },
-                        "name" => {
-                            println!("name: {NAME}")
-                        }
-                        "restart" | "reboot" => {
-                           esp_idf_hal::reset::restart(); 
-                        }
-                        _ => {
-                            println!("Unknown command {command}")
-                        }
+                    } else {
+                        eprintln!("Invalid UTF-8 sequence");
                     }
-                };
-
-                if let Err(error) = command_result {
-                    println!("Error executing command {command}: {error}");
+                    buffer.clear(); // Очищаем буфер
+                } else {
+                    buffer.push(byte[0]); // Собираем сообщение
                 }
             }
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::WouldBlock
-                | std::io::ErrorKind::TimedOut
-                | std::io::ErrorKind::Interrupted => {
-                    log::info!("Error: {e}\r\n");
-                    FreeRtos::delay_ms(10);
-                    continue;
-                }
-                _ => {
-                    log::info!("Error: {e}\r\n");
-                    continue;
-                }
-            },
+            Err(e) => {
+                eprintln!("Error reading stdin: {}", e);
+                break;
+            }
         }
     }
+    Ok(())
 }

@@ -1,4 +1,6 @@
-use crate::rgb::RGBLedColor;
+use std::{collections::HashMap, time::Instant};
+
+use crate::{effects::{self, Effect, ParameterTypes}, rgb::RGBLedColor};
 use esp_idf_hal::ledc::LedcDriver;
 use esp_idf_svc::nvs::{EspNvs, EspNvsPartition, NvsDefault};
 
@@ -7,7 +9,9 @@ pub struct RgbControl {
     pwm_g: LedcDriver<'static>,
     pwm_b: LedcDriver<'static>,
     nvs: EspNvsPartition<NvsDefault>,
-    color: RGBLedColor,
+    effects: Vec<Box<dyn Effect>>,
+    selected_effect_index: usize,
+    dt: Instant,
 }
 
 impl RgbControl {
@@ -22,44 +26,62 @@ impl RgbControl {
             pwm_g,
             pwm_b,
             nvs,
-            color: RGBLedColor::default(),
+            effects: vec![
+            Box::new(effects::direct::Direct::new()),
+            Box::new(effects::huerotate::HueRotate::new()),
+            ],
+            selected_effect_index: 0,
+            dt: Instant::now()
         }
     }
 
     pub fn init(&mut self) -> anyhow::Result<()> {
-        let nvs_rgb = EspNvs::new(self.nvs.clone(), "rgb", true)?;
+        let nvs_handle_settings = EspNvs::new(self.nvs.clone(), "settings", true)?; 
+        self.selected_effect_index = if let Ok(effect_index) = nvs_handle_settings.get_u8("effect_index") {
+            effect_index.unwrap_or_default() as usize
+        } else {
+            0
+        };
 
-        if let Ok(color_u32) = nvs_rgb.get_u32("color") {
-            self.color = RGBLedColor::new_from_u32(color_u32.unwrap_or(0xffffff));
-        }
-
-        self.set_color_pwm()?;
         Ok(())
     }
 
-    pub fn get_color(&self) -> RGBLedColor {
-        self.color
+    pub fn set_effect(&mut self, index: usize) {
+        self.selected_effect_index = self.selected_effect_index.clamp(0, self.effects.len())
     }
 
-    pub fn set_color(&mut self, color: RGBLedColor) -> anyhow::Result<()> {
-        self.color = color;
-        self.set_color_pwm()?;
-        let nvs_rgb = EspNvs::new(self.nvs.clone(), "rgb", true).unwrap();
-        nvs_rgb.set_u32("color", self.color.to_u32())?;
-        Ok(())
+    pub fn get_effect_name(&self) -> &str {
+        self.effects[self.selected_effect_index].name()
     }
 
-    fn set_color_pwm(&mut self) -> anyhow::Result<()> {
+    pub fn get_effect_options(&self) -> HashMap<String, ParameterTypes> {
+        self.effects[self.selected_effect_index].get_parameters()
+    }
+
+    pub fn set_effect_parameter(&mut self, name: &str, value: ParameterTypes) {
+        self.effects[self.selected_effect_index].set_parameter(name, value);
+        self.effects[self.selected_effect_index].save(self.nvs.clone());
+    }
+
+    pub fn get_effects_name(&self) -> Vec<&str> {
+        self.effects.iter().map(|x| x.name()).collect()
+    }
+
+    pub fn update(&mut self) {
+        self.effects[self.selected_effect_index].update(self.dt.elapsed().as_secs_f32());
+        self.dt = Instant::now();
+        let color = self.effects[self.selected_effect_index].render();
+        self.set_color_pwm(color);
+    }
+
+    fn set_color_pwm(&mut self, color: RGBLedColor) -> anyhow::Result<()> {
         let max_duty = self.pwm_r.get_max_duty();
-        self.pwm_r.set_duty(
-            self.color.red as u32 * max_duty / 255,
-        )?;
-        self.pwm_g.set_duty(
-            self.color.green as u32 * max_duty / 255,
-        )?;
-        self.pwm_b.set_duty(
-            self.color.blue as u32 * max_duty / 255,
-        )?;
+        self.pwm_r
+            .set_duty(color.red as u32 * max_duty / 255)?;
+        self.pwm_g
+            .set_duty(color.green as u32 * max_duty / 255)?;
+        self.pwm_b
+            .set_duty(color.blue as u32 * max_duty / 255)?;
         Ok(())
     }
 }
