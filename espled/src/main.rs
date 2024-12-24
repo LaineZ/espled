@@ -30,6 +30,7 @@ pub enum Request {
     GetEffects,
     GetEffect,
     GetParameters,
+    GetName,
     SetEffect(usize),
     SetOption(String, ParameterTypes),
 }
@@ -109,29 +110,68 @@ fn main() -> anyhow::Result<()> {
     let mut buffer = Vec::new();
     let mut byte = [0u8; 1];
 
-
     loop {
         match handle.read_exact(&mut byte) {
             Ok(_) => {
+                println!("Read byte: {:?}", byte[0]);
                 if byte[0] == 0 {
                     if let Ok(json) = String::from_utf8(buffer.clone()) {
                         match serde_json::from_str::<Request>(&json) {
-                            Ok(data) => println!("Received: {:?}", data),
+                            Ok(data) => {
+                                let controller = controller.clone();
+                                let mut controller_lock = controller.lock().unwrap();
+                                match data {
+                                    Request::GetEffects => {
+                                        let json = serde_json::to_string(&controller_lock.get_effects_name()).unwrap();
+                                        println!("{json}\0");
+                                    },
+                                    Request::GetEffect => {
+                                        let json = serde_json::to_string(&controller_lock.get_effect_name()).unwrap();
+                                        println!("{json}\0");
+                                    },
+                                    Request::GetParameters => {
+                                        let json = serde_json::to_string(&controller_lock.get_effect_options()).unwrap();
+                                        println!("{json}\0");
+                                    },
+                                    Request::GetName => {
+                                        let json = serde_json::to_string(&NAME).unwrap();
+                                        println!("{json}\0");
+                                    },
+                                    Request::SetEffect(index) => {
+                                        let json = serde_json::to_string(&controller_lock.set_effect(index)).unwrap();
+                                        println!("{json}\0");
+                                    },
+                                    Request::SetOption(name, parameter_type) => {
+                                        // TODO: error handling for this request
+                                        let json = serde_json::to_string(&true).unwrap();
+                                        controller_lock.set_effect_parameter(&name, parameter_type);
+                                        println!("{json}\0"); 
+                                    },
+                                }
+                            },
                             Err(e) => eprintln!("Failed to parse JSON: {}", e),
                         }
                     } else {
                         eprintln!("Invalid UTF-8 sequence");
                     }
-                    buffer.clear(); // Очищаем буфер
+                    buffer.clear();
                 } else {
-                    buffer.push(byte[0]); // Собираем сообщение
+                    buffer.push(byte[0]);
                 }
             }
-            Err(e) => {
-                eprintln!("Error reading stdin: {}", e);
-                break;
-            }
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::WouldBlock
+                | std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::Interrupted => {
+                    log::info!("Error: {e}\r\n");
+                    FreeRtos::delay_ms(10);
+                    continue;
+                }
+                _ => {
+                    log::info!("Error: {e}\r\n");
+                    continue;
+                }
+            },
         }
     }
-    Ok(())
 }

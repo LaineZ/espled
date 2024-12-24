@@ -46,8 +46,12 @@ impl RgbControl {
         Ok(())
     }
 
-    pub fn set_effect(&mut self, index: usize) {
-        self.selected_effect_index = self.selected_effect_index.clamp(0, self.effects.len())
+    pub fn set_effect(&mut self, index: usize) -> bool {
+        if index > self.effects.len() - 1 {
+            return false
+        }
+        self.selected_effect_index = index;
+        true
     }
 
     pub fn get_effect_name(&self) -> &str {
