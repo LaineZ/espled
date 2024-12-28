@@ -24,7 +24,6 @@ pub mod server;
 
 const NAME: &str = "LentO'Chka";
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
     GetEffects,
@@ -107,56 +106,53 @@ fn main() -> anyhow::Result<()> {
     let mut nvs_handle = EspNvs::new(nvs.clone(), "wifi", true)?;
     let stdin = std::io::stdin();
     let mut handle = stdin.lock();
-    let mut buffer = Vec::new();
-    let mut byte = [0u8; 1];
+    let mut buffer = String::new();
 
     loop {
-        match handle.read_exact(&mut byte) {
-            Ok(_) => {
-                println!("Read byte: {:?}", byte[0]);
-                if byte[0] == 0 {
-                    if let Ok(json) = String::from_utf8(buffer.clone()) {
-                        match serde_json::from_str::<Request>(&json) {
-                            Ok(data) => {
-                                let controller = controller.clone();
-                                let mut controller_lock = controller.lock().unwrap();
-                                match data {
-                                    Request::GetEffects => {
-                                        let json = serde_json::to_string(&controller_lock.get_effects_name()).unwrap();
-                                        println!("{json}\0");
-                                    },
-                                    Request::GetEffect => {
-                                        let json = serde_json::to_string(&controller_lock.get_effect_name()).unwrap();
-                                        println!("{json}\0");
-                                    },
-                                    Request::GetParameters => {
-                                        let json = serde_json::to_string(&controller_lock.get_effect_options()).unwrap();
-                                        println!("{json}\0");
-                                    },
-                                    Request::GetName => {
-                                        let json = serde_json::to_string(&NAME).unwrap();
-                                        println!("{json}\0");
-                                    },
-                                    Request::SetEffect(index) => {
-                                        let json = serde_json::to_string(&controller_lock.set_effect(index)).unwrap();
-                                        println!("{json}\0");
-                                    },
-                                    Request::SetOption(name, parameter_type) => {
-                                        // TODO: error handling for this request
-                                        let json = serde_json::to_string(&true).unwrap();
-                                        controller_lock.set_effect_parameter(&name, parameter_type);
-                                        println!("{json}\0"); 
-                                    },
-                                }
-                            },
-                            Err(e) => eprintln!("Failed to parse JSON: {}", e),
+        match handle.read_line(&mut buffer) {
+            Ok(bytes) => {
+                match serde_json::from_str::<Request>(&buffer) {
+                    Ok(data) => {
+                        let controller = controller.clone();
+                        let mut controller_lock = controller.lock().unwrap();
+                        match data {
+                            Request::GetEffects => {
+                                let json =
+                                    serde_json::to_string(&controller_lock.get_effects_name())
+                                        .unwrap();
+                                println!("{json}");
+                            }
+                            Request::GetEffect => {
+                                let json =
+                                    serde_json::to_string(&controller_lock.get_effect_name())
+                                        .unwrap();
+                                println!("{json}");
+                            }
+                            Request::GetParameters => {
+                                let json =
+                                    serde_json::to_string(&controller_lock.get_effect_options())
+                                        .unwrap();
+                                println!("{json}");
+                            }
+                            Request::GetName => {
+                                let json = serde_json::to_string(&NAME).unwrap();
+                                println!("{json}");
+                            }
+                            Request::SetEffect(index) => {
+                                let json =
+                                    serde_json::to_string(&controller_lock.set_effect(index))
+                                        .unwrap();
+                                println!("{json}");
+                            }
+                            Request::SetOption(name, parameter_type) => {
+                                // TODO: error handling for this request
+                                let json = serde_json::to_string(&true).unwrap();
+                                controller_lock.set_effect_parameter(&name, parameter_type);
+                                println!("{json}");
+                            }
                         }
-                    } else {
-                        eprintln!("Invalid UTF-8 sequence");
                     }
-                    buffer.clear();
-                } else {
-                    buffer.push(byte[0]);
+                    Err(e) => println!("Failed to parse JSON: {}", e),
                 }
             }
             Err(e) => match e.kind() {
