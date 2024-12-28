@@ -21,6 +21,9 @@
       in
       {
         devShell = with pkgs; mkShell rec {
+          nativeBuildInputs = [
+            pkg-config
+          ];
           buildInputs = [
             toolchain
             vulkan-loader
@@ -33,7 +36,6 @@
             libGLU
             pkgs.wayland
             pkgs.wayland-protocols
-            pkg-config
             systemd
           ];
 
