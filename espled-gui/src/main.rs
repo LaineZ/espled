@@ -1,5 +1,5 @@
 use control_thread::{ChannelStatus, ControlChannel, Controller};
-use eframe::egui::{self, vec2};
+use eframe::egui::{self, menu, vec2};
 use egui_extras::{Column, TableBuilder};
 use views::{connection::ConnectionView, editor::EditorView, ToggledViewManager, View};
 
@@ -7,6 +7,8 @@ pub mod control_thread;
 pub mod views;
 
 fn main() {
+    env_logger::init();
+    log::info!("Started");
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
         "egulenta",
@@ -52,42 +54,45 @@ impl eframe::App for MyEguiApp {
         self.process(ctx);
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::SidePanel::new(egui::panel::Side::Left, "side_panel")
             .resizable(true)
             .min_width(100.0)
             .max_width(400.0)
             .show(ctx, |ui| {
-                ui.add_space(5.0);
-                TableBuilder::new(ui)
-                    .column(Column::auto().resizable(false))
-                    .body(|mut body| {
-                        for (index, controller) in
-                            self.control_thread.get_controllers().iter().enumerate()
-                        {
-                            body.row(16.0, |mut row| {
+                menu::bar(ui, |ui| {
+                    ui.menu_button("Tools", |ui| if ui.button("Serial monitor").clicked() {});
+                });
+
+                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                    TableBuilder::new(ui)
+                        .column(Column::auto().resizable(false))
+                        .body(|mut body| {
+                            for controller in self.control_thread.get_controllers().iter() {
+                                body.row(16.0, |mut row| {
+                                    row.col(|ui| {
+                                        if ui.button(&controller.name).clicked() {
+                                            self.selected_controller = Some(controller.clone());
+                                        }
+                                    });
+                                });
+                            }
+                            body.row(14.0, |mut row| {
                                 row.col(|ui| {
-                                    if ui.button(&controller.name).clicked() {
-                                        self.selected_controller = Some(controller.clone());
+                                    if ui.button("Add remote").clicked() {
+                                        self.connection_view.enabled = true;
                                     }
                                 });
                             });
-                        }
-                        body.row(14.0, |mut row| {
-                            row.col(|ui| {
-                                if ui.button("Add remote").clicked() {
-                                    self.connection_view.enabled = true;
-                                }
+                            body.row(14.0, |mut row| {
+                                row.col(|ui| {
+                                    if ui.button("Discover serial").clicked() {
+                                        self.control_thread.discover_controllers();
+                                    }
+                                });
                             });
                         });
-                        body.row(14.0, |mut row| {
-                            row.col(|ui| {
-                                if ui.button("Discover serial").clicked() {
-                                    self.control_thread.discover_controllers();
-                                }
-                            });
-                        });
-                    });
+                });
             });
         egui::Window::new("Connection")
             .resizable(false)
@@ -114,11 +119,14 @@ impl eframe::App for MyEguiApp {
 
         match self.control_thread.status() {
             ChannelStatus::ProbingControllers(controller) => {
-                self.message_dialog.show(format!("Probing controller on port {controller}. Please wait..."), views::message::DialogType::Progress);
-            },
+                self.message_dialog.show(
+                    format!("Probing controller on port {controller}. Please wait..."),
+                    views::message::DialogType::Progress,
+                );
+            }
             ChannelStatus::Done => {
                 self.message_dialog.hide();
-            },
+            }
         }
 
         self.message_dialog.display(ctx);

@@ -116,7 +116,7 @@ impl ControlChannel {
         match lock {
             Ok(t) => return t.clone(),
             Err(err) => {
-                println!("Cant lock: {err}");
+                log::trace!("cant lock: {err}");
                 return Vec::new();
             }
         }
@@ -145,12 +145,12 @@ pub fn probe_controller_on_serial_port(p: SerialPortInfo) -> Option<Controller> 
             let _ = port.write("name\n".as_bytes());
             match reader.read_line(&mut response) {
                 Ok(_) => {
-                    println!("{response}");
+                    log::trace!("{response}");
                     if response.contains("ame:") {
                         let device_name = response.split(':').last().unwrap_or("");
                         let device_name_clean = device_name.replace("\0", "").trim().to_string();
                         if !device_name_clean.is_empty() && device_name_clean != "" {
-                            println!("FOUND CONTROLLER: {:?}", p.port_name);
+                            log::debug!("found controller: {:?}", p.port_name);
                             return Some(Controller {
                                 name: device_name_clean,
                                 serial_path: port.name().unwrap_or_default(),
@@ -160,8 +160,8 @@ pub fn probe_controller_on_serial_port(p: SerialPortInfo) -> Option<Controller> 
                 }
                 Err(_) => {
                     fails += 1;
-                    if fails > 5 {
-                        println!("WARN: Failure to read name from: {}", p.port_name);
+                    if fails > 2 {
+                        log::warn!("fail to read name from: {}", p.port_name);
                         return None;
                     }
                 }
