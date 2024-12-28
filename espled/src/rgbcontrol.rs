@@ -1,11 +1,9 @@
 use std::{collections::HashMap, time::Instant};
 
-use crate::{
-    effects::{self, Effect, ParameterTypes},
-    rgb::RGBLedColor,
-};
+use crate::effects::{self, Effect};
 use esp_idf_hal::ledc::LedcDriver;
 use esp_idf_svc::nvs::{EspNvs, EspNvsPartition, NvsDefault};
+use protocol::{ParameterTypes, RGBLedColor};
 
 pub struct RgbControl {
     pwm_r: LedcDriver<'static>,

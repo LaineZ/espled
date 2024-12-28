@@ -1,5 +1,6 @@
+use protocol::RGBLedColor;
+
 use super::{Effect, ParameterTypes};
-use crate::rgb::RGBLedColor;
 use std::collections::HashMap;
 
 #[derive(Default)]

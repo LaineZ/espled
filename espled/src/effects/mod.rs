@@ -1,26 +1,10 @@
 use std::collections::HashMap;
 
 use esp_idf_svc::nvs::{EspNvs, EspNvsPartition, NvsDefault};
-use serde::{Deserialize, Serialize};
+use protocol::{ParameterTypes, RGBLedColor};
 
-use crate::rgb::RGBLedColor;
 pub mod direct;
 pub mod huerotate;
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub enum ParameterTypes {
-    Color(RGBLedColor),
-    Float(f32),
-}
-
-impl ParameterTypes {
-    pub fn as_f32(self) -> Option<f32> {
-        match self {
-            ParameterTypes::Color(_) => None,
-            ParameterTypes::Float(value) => Some(value),
-        }
-    }
-}
 
 pub trait Effect {
     fn get_parameters(&self) -> HashMap<String, ParameterTypes>;

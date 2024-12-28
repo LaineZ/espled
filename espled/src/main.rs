@@ -4,7 +4,6 @@ pub mod serial_configuration;
 use std::io::{BufRead, Read};
 use std::sync::{Arc, Mutex};
 
-use effects::ParameterTypes;
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::ledc::config::TimerConfig;
 use esp_idf_hal::ledc::{LedcDriver, LedcTimerDriver};
@@ -12,7 +11,7 @@ use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, EspNvsPartition, NvsDefault};
 use esp_idf_svc::wifi::ClientConfiguration;
-use serde::{Deserialize, Serialize};
+use protocol::Request;
 use server::Server;
 
 use crate::rgbcontrol::RgbControl;
@@ -23,16 +22,6 @@ pub mod rgbcontrol;
 pub mod server;
 
 const NAME: &str = "LentO'Chka";
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Request {
-    GetEffects,
-    GetEffect,
-    GetParameters,
-    GetName,
-    SetEffect(usize),
-    SetOption(String, ParameterTypes),
-}
 
 fn nvs_get_string(key: &str, nvs: EspNvsPartition<NvsDefault>) -> String {
     let mut buffer: [u8; 128] = [0; 128];
