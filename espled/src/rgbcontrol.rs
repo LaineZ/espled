@@ -30,6 +30,7 @@ impl RgbControl {
             effects: vec![
                 Box::new(effects::direct::Direct::new()),
                 Box::new(effects::huerotate::HueRotate::new()),
+                Box::new(effects::decay::Decay::new())
             ],
             selected_effect_index: 0,
             dt: Instant::now(),
@@ -45,6 +46,7 @@ impl RgbControl {
                 0
             };
 
+        self.effects[self.selected_effect_index].init(self.nvs.clone());
         Ok(())
     }
 
@@ -53,6 +55,7 @@ impl RgbControl {
             return false;
         }
         self.selected_effect_index = index;
+        self.effects[self.selected_effect_index].init(self.nvs.clone());
         true
     }
 
@@ -64,9 +67,10 @@ impl RgbControl {
         self.effects[self.selected_effect_index].get_parameters()
     }
 
-    pub fn set_effect_parameter(&mut self, name: &str, value: ParameterTypes) {
-        self.effects[self.selected_effect_index].set_parameter(name, value);
+    pub fn set_effect_parameter(&mut self, name: &str, value: ParameterTypes) -> bool {
+        let res = self.effects[self.selected_effect_index].set_parameter(name, value);
         self.effects[self.selected_effect_index].save(self.nvs.clone());
+        return res;
     }
 
     pub fn get_effects_name(&self) -> Vec<&str> {

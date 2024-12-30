@@ -5,6 +5,7 @@ use protocol::{ParameterTypes, RGBLedColor};
 
 pub mod direct;
 pub mod huerotate;
+pub mod decay;
 
 pub trait Effect {
     fn get_parameters(&self) -> HashMap<String, ParameterTypes>;

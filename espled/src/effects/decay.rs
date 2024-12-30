@@ -3,25 +3,23 @@ use protocol::RGBLedColor;
 use super::{Effect, ParameterTypes};
 use std::collections::HashMap;
 
-pub struct HueRotate {
+pub struct Decay {
     parameters: HashMap<String, super::ParameterTypes>,
-    hue: f32,
+    color: f32,
 }
 
-impl HueRotate {
+impl Decay {
     pub fn new() -> Self {
         Self {
             parameters: HashMap::from([
-                (String::from("saturation"), ParameterTypes::Float(1.0)),
-                (String::from("value"), ParameterTypes::Float(1.0)),
                 (String::from("speed"), ParameterTypes::Float(1.0)),
             ]),
-            hue: 0.0,
+            color: 0.0,
         }
     }
 }
 
-impl Effect for HueRotate {
+impl Effect for Decay {
     fn get_parameters(&self) -> HashMap<String, ParameterTypes> {
         self.parameters.clone()
     }
@@ -36,21 +34,21 @@ impl Effect for HueRotate {
     }
 
     fn name(&self) -> &str {
-        "Hue Rotate"
+        "Decay"
     }
 
     fn update(&mut self, delta_time: f32) {
         let speed = self.parameters.get("speed").unwrap().as_f32().unwrap();
-        if self.hue >= 360.0 {
-            self.hue = 0.0;
+        
+        if self.color < 1.0 {
+            self.color += speed * delta_time;
         } else {
-            self.hue += speed * delta_time;
+            self.color = 0.0;
         }
     }
 
     fn render(&self) -> RGBLedColor {
-        let saturation = self.parameters.get("saturation").unwrap().as_f32().unwrap();
-        let value = self.parameters.get("value").unwrap().as_f32().unwrap();
-        RGBLedColor::from_hsv(self.hue, saturation, value)
+        let component = (self.color * 255.0) as u8;
+        RGBLedColor::new(component, component, component)
     }
 }

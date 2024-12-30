@@ -1,25 +1,23 @@
 #![feature(try_blocks)]
+#![feature(buf_read_has_data_left)]
 
 pub mod serial_configuration;
-use std::io::{BufRead, Read};
+use std::io::BufRead;
 use std::sync::{Arc, Mutex};
 
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::ledc::config::TimerConfig;
 use esp_idf_hal::ledc::{LedcDriver, LedcTimerDriver};
 use esp_idf_hal::prelude::*;
-use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, EspNvsPartition, NvsDefault};
-use esp_idf_svc::wifi::ClientConfiguration;
 use protocol::Request;
-use server::Server;
 
 use crate::rgbcontrol::RgbControl;
 
 pub mod effects;
 pub mod rgb;
 pub mod rgbcontrol;
-pub mod server;
+//pub mod server;
 
 const NAME: &str = "LentO'Chka";
 
@@ -32,7 +30,7 @@ fn nvs_get_string(key: &str, nvs: EspNvsPartition<NvsDefault>) -> String {
 
 fn main() -> anyhow::Result<()> {
     esp_idf_hal::sys::link_patches();
-    let sys_loop = EspSystemEventLoop::take()?;
+    //let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let peripherals = Peripherals::take()?;
 
@@ -72,34 +70,41 @@ fn main() -> anyhow::Result<()> {
     controller_lock.init()?;
     drop(controller_lock);
 
-    let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
-    server
-        .connect(
-            sys_loop,
-            ClientConfiguration {
-                ssid: nvs_get_string("ssid", nvs.clone())
-                    .as_str()
-                    .try_into()
-                    .unwrap_or_default(),
-                password: nvs_get_string("password", nvs.clone())
-                    .as_str()
-                    .try_into()
-                    .unwrap_or_default(),
-                ..Default::default()
-            },
-        )
-        .unwrap_or_else(|op| println!("Wi-Fi connection error: {op}. I sorry about that..."));
+  //  let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
+  //  server
+  //      .connect(
+  //          sys_loop,
+  //          ClientConfiguration {
+  //              ssid: nvs_get_string("ssid", nvs.clone())
+  //                  .as_str()
+  //                  .try_into()
+  //                  .unwrap_or_default(),
+  //              password: nvs_get_string("password", nvs.clone())
+  //                  .as_str()
+  //                  .try_into()
+  //                  .unwrap_or_default(),
+  //              ..Default::default()
+  //          },
+  //      )
+  //      .unwrap_or_else(|op| println!("Wi-Fi connection error: {op}. I sorry about that..."));
 
-    server.handle_response(controller.clone())?;
+  //  server.handle_response(controller.clone())?;
 
-    let mut nvs_handle = EspNvs::new(nvs.clone(), "wifi", true)?;
+  //  let mut nvs_handle = EspNvs::new(nvs.clone(), "wifi", true)?;
     let stdin = std::io::stdin();
     let mut handle = stdin.lock();
-    let mut buffer = String::new();
 
     loop {
+        if !handle.has_data_left().unwrap_or_default() {
+            FreeRtos::delay_ms(5);
+            let controller = controller.clone();
+            if let Ok(mut lock) = controller.try_lock() {
+                lock.update()?;
+            };
+        }
+        let mut buffer = String::new();
         match handle.read_line(&mut buffer) {
-            Ok(bytes) => {
+            Ok(_) => {
                 match serde_json::from_str::<Request>(&buffer) {
                     Ok(data) => {
                         let controller = controller.clone();
@@ -113,7 +118,7 @@ fn main() -> anyhow::Result<()> {
                             }
                             Request::GetEffect => {
                                 let json =
-                                    serde_json::to_string(&controller_lock.get_effect_name())
+                                   serde_json::to_string(&controller_lock.get_effect_name())
                                         .unwrap();
                                 println!("{json}");
                             }
@@ -129,14 +134,12 @@ fn main() -> anyhow::Result<()> {
                             }
                             Request::SetEffect(index) => {
                                 let json =
-                                    serde_json::to_string(&controller_lock.set_effect(index))
-                                        .unwrap();
+                                    serde_json::to_string(&controller_lock.set_effect(index)).unwrap();
                                 println!("{json}");
                             }
                             Request::SetOption(name, parameter_type) => {
                                 // TODO: error handling for this request
-                                let json = serde_json::to_string(&true).unwrap();
-                                controller_lock.set_effect_parameter(&name, parameter_type);
+                                let json = serde_json::to_string(&controller_lock.set_effect_parameter(&name, parameter_type)).unwrap();
                                 println!("{json}");
                             }
                         }
@@ -144,18 +147,12 @@ fn main() -> anyhow::Result<()> {
                     Err(e) => println!("Failed to parse JSON: {}", e),
                 }
             }
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::WouldBlock
-                | std::io::ErrorKind::TimedOut
-                | std::io::ErrorKind::Interrupted => {
-                    log::info!("Error: {e}\r\n");
-                    FreeRtos::delay_ms(10);
-                    continue;
-                }
-                _ => {
-                    log::info!("Error: {e}\r\n");
-                    continue;
-                }
+            Err(_) => {
+                FreeRtos::delay_ms(5);
+                let controller = controller.clone();
+                if let Ok(mut lock) = controller.try_lock() {
+                    lock.update()?;
+                };
             },
         }
     }
