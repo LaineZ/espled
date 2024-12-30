@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::write,
     io::{BufRead, BufReader, Read},
     sync::{
@@ -9,6 +10,8 @@ use std::{
     time::Duration,
 };
 
+use protocol::{ParameterTypes, Request};
+use serde::de::DeserializeOwned;
 use serialport::{self, SerialPort, SerialPortInfo};
 use std::sync::Mutex;
 
@@ -26,18 +29,16 @@ pub enum ChannelStatus {
 #[derive(Clone)]
 pub struct Controller {
     pub name: String,
-    pub serial_path: String,
+    pub serial_port: SerialPortInfo,
+    pub options: HashMap<String, ParameterTypes>,
+    pub effect_list: Vec<String>,
+    pub selected_effect: String,
 }
 
 impl Controller {
-    pub fn apply_color(&self, color: u32) {
-        if let Ok(mut port) = serialport::new(self.serial_path.clone(), 115200)
-            .timeout(Duration::from_millis(100))
-            .open()
-        {
-            let color = format!("color {:x}\n", color);
-            port.write(color.as_bytes()).unwrap();
-        }
+    pub fn set_effect(&self) {
+        let index = self.effect_list.iter().position(|x| {  *x == self.selected_effect }).unwrap_or_default();
+        let _: Option<bool> = serial_request(self.serial_port.clone(), &Request::SetEffect(index));
     }
 }
 
@@ -90,7 +91,7 @@ impl ControlChannel {
                                 let mut controller_lock = controller_clone.lock().unwrap();
                                 if controller_lock
                                     .iter()
-                                    .find(|x: &&Controller| x.serial_path == p.port_name)
+                                    .find(|x: &&Controller| x.serial_port == p)
                                     .is_none()
                                 {
                                     controller_lock.push(controller);
@@ -141,47 +142,75 @@ impl ControlChannel {
     }
 }
 
-pub fn probe_controller_on_serial_port(p: SerialPortInfo) -> Option<Controller> {
-    let request_json = serde_json::to_string(&protocol::Request::GetName).unwrap();
+fn serial_request<T>(
+    p: SerialPortInfo,
+    request: &impl serde::Serialize,
+) -> Option<T>
+where
+    T: DeserializeOwned,
+{
+    let request_json = serde_json::to_string(request).unwrap();
     log::trace!("request: {}", request_json);
+
     if let Ok(mut port) = serialport::new(p.port_name.clone(), 115200)
         .timeout(Duration::from_millis(5000))
         .open()
     {
         let mut fails = 0;
-        port.write_all(format!("{request_json}\n").as_bytes()).unwrap();
+        port.write_all(format!("{request_json}\n").as_bytes())
+            .unwrap();
+
+        // Читаем ответ от устройства
         loop {
             let mut reader = BufReader::new(port.try_clone().expect("Failed to clone port"));
             let mut response_string = String::new();
-            log::trace!("probing: {:?} len: {:?}", port.name(), reader.buffer().len());
+            log::trace!(
+                "probing: {:?} len: {:?}",
+                port.name(),
+                reader.buffer().len()
+            );
+
             match reader.read_line(&mut response_string) {
                 Ok(_) => {
                     log::trace!("{:?}: {}", port.name(), response_string);
-                    if let Ok(name) = serde_json::from_str(&response_string) {
-                        return Some(Controller {
-                            name,
-                            serial_path: port.name().unwrap(),
-                        });
+
+                    if let Ok(response) = serde_json::from_str::<T>(&response_string) {
+                        return Some(response);
                     } else {
-                        log::warn!("invalid json sequence from: {}", p.port_name);
+                        log::warn!("Invalid JSON sequence from: {}", p.port_name);
                         return None;
                     }
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                    log::warn!("timeout... continue reading!!!");
                 }
                 Err(err) => {
                     fails += 1;
                     if fails >= 2 {
-                        log::warn!("fail to read name from: {} error: {}", p.port_name, err);
+                        log::warn!("Failed to read from: {} error: {}", p.port_name, err);
                         break;
                     }
                 }
             }
         }
     } else {
-        log::error!("CANT OPEN PORT!!!");
+        log::error!("Cannot open port: {}", p.port_name);
     }
 
     None
+}
+
+pub fn probe_controller_on_serial_port(p: SerialPortInfo) -> Option<Controller> {
+    let name: String = serial_request(p.clone(), &protocol::Request::GetName)?;
+    let options: HashMap<String, ParameterTypes> =
+        serial_request(p.clone(), &protocol::Request::GetParameters)?;
+    let selected_effect: String =
+        serial_request(p.clone(), &protocol::Request::GetEffect)?;
+    let effect_list: Vec<String> =
+        serial_request(p.clone(), &protocol::Request::GetEffects)?;
+
+    Some(Controller {
+        name,
+        options,
+        selected_effect,
+        effect_list,
+        serial_port: p.clone(),
+    })
 }

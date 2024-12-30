@@ -79,3 +79,32 @@ impl RGBLedColor {
         red | green | blue
     }
 }
+
+
+impl Into<[f32; 3]> for RGBLedColor {
+    fn into(self) -> [f32; 3] {
+        [
+            self.red as f32 / 255.0,
+            self.green as f32 / 255.0,
+            self.blue as f32 / 255.0,
+        ]
+    }
+}
+
+impl From<[f32; 3]> for RGBLedColor {
+    fn from(arr: [f32; 3]) -> Self {
+        RGBLedColor {
+            red: (arr[0] * 255.0).round() as u8,
+            green: (arr[1] * 255.0).round() as u8,
+            blue: (arr[2] * 255.0).round() as u8,
+        }
+    }
+}
+
+impl PartialEq for RGBLedColor {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_u32() == other.to_u32()
+    }
+}
+
+impl Eq for RGBLedColor {}

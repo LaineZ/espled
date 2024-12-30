@@ -73,6 +73,7 @@ impl eframe::App for MyEguiApp {
                                     row.col(|ui| {
                                         if ui.button(&controller.name).clicked() {
                                             self.selected_controller = Some(controller.clone());
+                                            self.editor_view.populate(controller);
                                         }
                                     });
                                 });
@@ -107,7 +108,9 @@ impl eframe::App for MyEguiApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(controller) = self.selected_controller.clone() {
                 self.editor_view.ui(ui);
-                controller.apply_color(self.editor_view.get_color());
+                if self.editor_view.changed {
+                    controller.set_effect();
+                }
             } else {
                 ui.heading("Please select MCLU connection from list");
             }
