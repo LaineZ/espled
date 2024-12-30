@@ -44,11 +44,13 @@ impl Controller {
             .iter()
             .position(|x| *x == self.selected_effect)
             .unwrap_or_default();
-        let _: Option<bool> = serial_request(self.serial_port.clone(), &Request::SetEffect(index));
-        self.options =
-            serial_request(self.serial_port.clone(), &protocol::Request::GetParameters).unwrap();
+        serial_request(self.serial_port.clone(), &Request::SetEffect(index));
+        self.options = serial_request_wait_response(
+            self.serial_port.clone(),
+            &protocol::Request::GetParameters,
+        )
+        .unwrap();
     }
-
 
     pub fn get_effect(&self) -> String {
         self.selected_effect.clone()
@@ -56,10 +58,14 @@ impl Controller {
 
     pub fn set_options(&self) {
         for (option, value) in self.options.iter() {
-            let _: Option<bool> = serial_request(
+            let response: Option<bool> = serial_request_wait_response(
                 self.serial_port.clone(),
                 &Request::SetOption(option.clone(), *value),
             );
+
+            if !response.unwrap_or(false) {
+                log::error!("Unable to setup option {option}!");
+            }
         }
     }
 }
@@ -176,7 +182,25 @@ impl ControlChannel {
     }
 }
 
-fn serial_request<T>(p: SerialPortInfo, request: &impl serde::Serialize) -> Option<T>
+fn serial_request(p: SerialPortInfo, request: &impl serde::Serialize) -> bool {
+    let request_json = serde_json::to_string(request).unwrap();
+    log::debug!("← {}", request_json);
+
+    if let Ok(mut port) = serialport::new(p.port_name.clone(), 115200)
+        .timeout(Duration::from_millis(5000))
+        .open()
+    {
+        let result = port.write_all(format!("{request_json}\n").as_bytes());
+        port.flush();
+
+        log::debug!("→ {}: {}", port.name().unwrap_or_default(), result.is_ok());
+        return result.is_ok();
+    } else {
+        return false;
+    }
+}
+
+fn serial_request_wait_response<T>(p: SerialPortInfo, request: &impl serde::Serialize) -> Option<T>
 where
     T: DeserializeOwned,
 {
@@ -188,10 +212,11 @@ where
         .open()
     {
         let mut fails = 0;
-        port.write_all(format!("{request_json}\n").as_bytes())
-            .unwrap();
 
         loop {
+            port.write_all(format!("{request_json}\n").as_bytes())
+            .unwrap();
+            port.flush();
             let mut reader = BufReader::new(port.try_clone().expect("Failed to clone port"));
             let mut response_string = String::new();
 
@@ -207,16 +232,18 @@ where
                             p.port_name,
                             response_string
                         );
-                        return None;
+                        fails += 1;
                     }
                 }
                 Err(err) => {
+                    log::warn!("failed to read from: {} error: {}", p.port_name, err);
                     fails += 1;
-                    if fails >= 2 {
-                        log::warn!("failed to read from: {} error: {}", p.port_name, err);
-                        break;
-                    }
                 }
+            }
+
+            if fails >= 5 {
+                log::warn!("failed to read after {fails} tries, giving up");
+                break;
             }
         }
     } else {
@@ -227,11 +254,13 @@ where
 }
 
 pub fn probe_controller_on_serial_port(p: SerialPortInfo) -> Option<Controller> {
-    let name: String = serial_request(p.clone(), &protocol::Request::GetName)?;
+    let name: String = serial_request_wait_response(p.clone(), &protocol::Request::GetName)?;
     let options: HashMap<String, ParameterTypes> =
-        serial_request(p.clone(), &protocol::Request::GetParameters)?;
-    let selected_effect: String = serial_request(p.clone(), &protocol::Request::GetEffect)?;
-    let effect_list: Vec<String> = serial_request(p.clone(), &protocol::Request::GetEffects)?;
+        serial_request_wait_response(p.clone(), &protocol::Request::GetParameters)?;
+    let selected_effect: String =
+        serial_request_wait_response(p.clone(), &protocol::Request::GetEffect)?;
+    let effect_list: Vec<String> =
+        serial_request_wait_response(p.clone(), &protocol::Request::GetEffects)?;
 
     Some(Controller {
         name,

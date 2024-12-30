@@ -16,11 +16,13 @@ pub mod views;
 fn main() {
     env_logger::init();
     log::info!("Started");
+    let control_thread = control_thread::ControlChannel::new();
+    control_thread.discover_controllers();
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
         "egulenta",
         native_options,
-        Box::new(|cc| Ok(Box::new(MyEguiApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(MyEguiApp::new(cc, control_thread)))),
     )
     .unwrap();
 }
@@ -33,11 +35,11 @@ struct MyEguiApp {
 }
 
 impl MyEguiApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, control: ControlChannel) -> Self {
         Self {
             connection_view: ToggledViewManager::new(Box::new(ConnectionView::default())),
             editor_view: EditorView::default(),
-            control_thread: ControlChannel::new(),
+            control_thread: control,
             selected_controller: None,
         }
     }

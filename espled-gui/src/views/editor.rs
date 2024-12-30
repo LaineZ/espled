@@ -58,17 +58,22 @@ impl View for EditorView {
                             let new_color = RGBLedColor::from(color_array);
                             if new_color != *rgbled_color {
                                 *rgbled_color = new_color;
-                                self.changed_option = true;
+                                //self.changed_option = true;
                             }
                         },
                         ParameterTypes::Float(value) => {
-                            if ui.add(egui::Slider::new(value, 0.0..=1.0)).changed() {
-                                self.changed_option = true;
+                            let new_value = value.clone();
+                            if ui.add(egui::Slider::new(value, 0.0..=100.0)).changed() {
+                                //self.changed_option = true;
                             }
                         },
                     }
                 });
             }
+
+            if ui.button("Apply options").clicked() {
+                self.changed_option = true;
+            };
         });
     }
 
