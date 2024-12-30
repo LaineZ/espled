@@ -50,13 +50,15 @@ impl RgbControl {
         Ok(())
     }
 
-    pub fn set_effect(&mut self, index: usize) -> bool {
+    pub fn set_effect(&mut self, index: usize) -> anyhow::Result<()> {
         if index > self.effects.len() - 1 {
-            return false;
+           anyhow::bail!("Effect out of range")
         }
         self.selected_effect_index = index;
+        let nvs_handle_settings = EspNvs::new(self.nvs.clone(), "settings", true)?;
+        nvs_handle_settings.set_u8("effect_index", self.selected_effect_index as u8)?;
         self.effects[self.selected_effect_index].init(self.nvs.clone());
-        true
+        Ok(())
     }
 
     pub fn get_effect_name(&self) -> &str {

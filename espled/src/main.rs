@@ -134,7 +134,7 @@ fn main() -> anyhow::Result<()> {
                             }
                             Request::SetEffect(index) => {
                                 let json =
-                                    serde_json::to_string(&controller_lock.set_effect(index)).unwrap();
+                                    serde_json::to_string(&controller_lock.set_effect(index).is_ok()).unwrap();
                                 println!("{json}");
                             }
                             Request::SetOption(name, parameter_type) => {
