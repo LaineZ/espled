@@ -11,20 +11,20 @@ pub struct EditorView {
     pub options: HashMap<String, ParameterTypes>,
     pub effects: Vec<String>,
     pub selected_effect: String,
-    pub changed: bool
+    pub changed_option: bool,
+    pub changed_effect: bool,
 }
 
 
 impl EditorView {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn populate(&mut self, controller: &Controller) {
-        self.options = controller.options.clone();
-        self.effects = controller.effect_list.clone();
-        self.changed = false;
-        self.selected_effect = controller.selected_effect.clone();
+    pub fn new(controller: &Controller) -> Self {
+        Self {
+            options: controller.options.clone(),
+            effects: controller.effect_list.clone(),
+            changed_option: false,
+            changed_effect: false,
+            selected_effect: controller.get_effect(),
+        }
     }
 }
 
@@ -43,7 +43,7 @@ impl View for EditorView {
                     }
                     if new_effect != self.selected_effect {
                         self.selected_effect = new_effect;
-                        self.changed = true;
+                        self.changed_effect = true;
                     }
                 }
                 );
@@ -58,12 +58,13 @@ impl View for EditorView {
                             let new_color = RGBLedColor::from(color_array);
                             if new_color != *rgbled_color {
                                 *rgbled_color = new_color;
-                                self.changed = true;
-                                log::trace!("changing: {:?}", value);
+                                self.changed_option = true;
                             }
                         },
-                        ParameterTypes::Float(_) => {
-                            // TODO
+                        ParameterTypes::Float(value) => {
+                            if ui.add(egui::Slider::new(value, 0.0..=1.0)).changed() {
+                                self.changed_option = true;
+                            }
                         },
                     }
                 });
