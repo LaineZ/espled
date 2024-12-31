@@ -187,7 +187,7 @@ fn serial_request(p: SerialPortInfo, request: &impl serde::Serialize) -> bool {
     log::debug!("← {}", request_json);
 
     if let Ok(mut port) = serialport::new(p.port_name.clone(), 115200)
-        .timeout(Duration::from_millis(5000))
+        .timeout(Duration::from_millis(1000))
         .open()
     {
         let result = port.write_all(format!("{request_json}\n").as_bytes());
@@ -208,15 +208,14 @@ where
     log::debug!("← {}", request_json);
 
     if let Ok(mut port) = serialport::new(p.port_name.clone(), 115200)
-        .timeout(Duration::from_millis(5000))
+        .timeout(Duration::from_millis(1000))
         .open()
     {
         let mut fails = 0;
 
         loop {
-            port.write_all(format!("{request_json}\n").as_bytes())
-            .unwrap();
-            port.flush();
+            let _ = port.write_all(format!("{request_json}\n").as_bytes());
+            let _ = port.flush();
             let mut reader = BufReader::new(port.try_clone().expect("Failed to clone port"));
             let mut response_string = String::new();
 
