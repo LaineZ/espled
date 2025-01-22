@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
     let peripherals = Peripherals::take()?;
 
     // led initialization
-    let timer_config = TimerConfig::new().frequency(25.kHz().into());
+    let timer_config = TimerConfig::new().resolution(esp_idf_hal::ledc::Resolution::Bits10).frequency(15.kHz().into());
 
     let ledc_timer_driver_b = LedcTimerDriver::new(peripherals.ledc.timer0, &timer_config)?;
     let ledc_timer_driver_r = LedcTimerDriver::new(peripherals.ledc.timer1, &timer_config)?;

@@ -82,7 +82,8 @@ impl RgbControl {
     pub fn update(&mut self) -> anyhow::Result<()> {
         self.effects[self.selected_effect_index].update(self.dt.elapsed().as_secs_f32());
         self.dt = Instant::now();
-        let color = self.effects[self.selected_effect_index].render();
+        let mut color = self.effects[self.selected_effect_index].render();
+        color.gamma_correct(1.3);
         self.set_color_pwm(color)
     }
 

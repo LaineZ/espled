@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+
+pub const DEFAULT_GAMMA_COEFICIENT: f32 = 2.2;
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum ParameterTypes {
     Color(RGBLedColor),
@@ -69,6 +72,12 @@ impl RGBLedColor {
             green: ((color >> 8) & 0xFF) as u8,
             blue: (color & 0xFF) as u8,
         }
+    }
+
+    pub fn gamma_correct(&mut self, coeficient: f32) {
+        self.red = ((self.red as f32 / 255.0).powf(coeficient) * 255.0).round() as u8;
+        self.green = ((self.green as f32 / 255.0).powf(coeficient) * 255.0).round() as u8;
+        self.blue = ((self.blue as f32 / 255.0).powf(coeficient) * 255.0).round() as u8;
     }
 
     pub fn to_u32(&self) -> u32 {
