@@ -1,7 +1,14 @@
+use crate::egui::FontFamily::Proportional;
+use crate::egui::TextStyle::Heading;
+use crate::egui::TextStyle::Name;
+use std::collections::BTreeMap;
+
 use control_thread::{ChannelStatus, ControlChannel, Controller};
-use eframe::egui::{self, menu, vec2};
+use eframe::egui::{self, menu, vec2, FontId};
 use egui_extras::{Column, TableBuilder};
-use views::{connection::ConnectionView, editor::EditorView, ToggledViewManager, View};
+use views::{
+    connection::ConnectionView, editor::EditorView, message::Message, ToggledViewManager, View,
+};
 
 pub mod control_thread;
 pub mod views;
@@ -9,11 +16,13 @@ pub mod views;
 fn main() {
     env_logger::init();
     log::info!("Started");
+    let control_thread = control_thread::ControlChannel::new();
+    control_thread.discover_controllers();
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
         "egulenta",
         native_options,
-        Box::new(|cc| Ok(Box::new(MyEguiApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(MyEguiApp::new(cc, control_thread)))),
     )
     .unwrap();
 }
@@ -21,18 +30,16 @@ fn main() {
 struct MyEguiApp {
     connection_view: ToggledViewManager,
     editor_view: EditorView,
-    message_dialog: views::message::Message,
     control_thread: ControlChannel,
     selected_controller: Option<Controller>,
 }
 
 impl MyEguiApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, control: ControlChannel) -> Self {
         Self {
             connection_view: ToggledViewManager::new(Box::new(ConnectionView::default())),
             editor_view: EditorView::default(),
-            message_dialog: views::message::Message::default(),
-            control_thread: ControlChannel::new(),
+            control_thread: control,
             selected_controller: None,
         }
     }
@@ -65,33 +72,17 @@ impl eframe::App for MyEguiApp {
                 });
 
                 ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    TableBuilder::new(ui)
-                        .column(Column::auto().resizable(false))
-                        .body(|mut body| {
-                            for controller in self.control_thread.get_controllers().iter() {
-                                body.row(16.0, |mut row| {
-                                    row.col(|ui| {
-                                        if ui.button(&controller.name).clicked() {
-                                            self.selected_controller = Some(controller.clone());
-                                        }
-                                    });
-                                });
-                            }
-                            body.row(14.0, |mut row| {
-                                row.col(|ui| {
-                                    if ui.button("Add remote").clicked() {
-                                        self.connection_view.enabled = true;
-                                    }
-                                });
-                            });
-                            body.row(14.0, |mut row| {
-                                row.col(|ui| {
-                                    if ui.button("Discover serial").clicked() {
-                                        self.control_thread.discover_controllers();
-                                    }
-                                });
-                            });
-                        });
+                    ui.label("Controllers:");
+                    for controller in self.control_thread.get_controllers().iter() {
+                        if ui.button(&controller.name).clicked() {
+                            self.selected_controller = Some(controller.clone());
+                            log::info!("Initialized controller: {:?}", controller);
+                            self.editor_view = EditorView::new(controller);
+                        }
+                    }
+                    if ui.button("Discover serial").clicked() {
+                        self.control_thread.discover_controllers();
+                    }
                 });
             });
         egui::Window::new("Connection")
@@ -105,9 +96,19 @@ impl eframe::App for MyEguiApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(controller) = self.selected_controller.clone() {
+            if let Some(mut controller) = self.selected_controller.clone() {
                 self.editor_view.ui(ui);
-                controller.apply_color(self.editor_view.get_color());
+                if self.editor_view.changed_effect {
+                    controller.set_effect(&self.editor_view.selected_effect);
+                    self.editor_view.options = controller.options.clone();
+                    self.editor_view.changed_effect = false;
+                }
+
+                if self.editor_view.changed_option {
+                    controller.options = self.editor_view.options.clone();
+                    controller.set_options();
+                    self.editor_view.changed_option = false;
+                }
             } else {
                 ui.heading("Please select MCLU connection from list");
             }
@@ -118,17 +119,21 @@ impl eframe::App for MyEguiApp {
         });
 
         match self.control_thread.status() {
-            ChannelStatus::ProbingControllers(controller) => {
-                self.message_dialog.show(
-                    format!("Probing controller on port {controller}. Please wait..."),
+            ChannelStatus::ProbingControllers(_) => {
+                Message::new(
+                    "Probing controllers, please wait",
                     views::message::DialogType::Progress,
-                );
+                )
+                .display(ctx);
             }
-            ChannelStatus::Done => {
-                self.message_dialog.hide();
+            ChannelStatus::NoControllers => {
+                if Message::new("No controllers found", views::message::DialogType::Ok).display(ctx)
+                {
+                    log::trace!("acknown");
+                    self.control_thread.acknown_status();
+                }
             }
+            _ => {}
         }
-
-        self.message_dialog.display(ctx);
     }
 }

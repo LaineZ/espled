@@ -1,4 +1,5 @@
 #![feature(try_blocks)]
+#![feature(buf_read_has_data_left)]
 
 pub mod serial_configuration;
 use std::io::BufRead;
@@ -8,20 +9,17 @@ use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::ledc::config::TimerConfig;
 use esp_idf_hal::ledc::{LedcDriver, LedcTimerDriver};
 use esp_idf_hal::prelude::*;
-use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, EspNvsPartition, NvsDefault};
-use esp_idf_svc::wifi::ClientConfiguration;
-use serial_configuration::parse_argument;
-use server::Server;
+use protocol::Request;
 
-use crate::rgb::RGBLedColor;
 use crate::rgbcontrol::RgbControl;
 
+pub mod effects;
 pub mod rgb;
 pub mod rgbcontrol;
-pub mod server;
+//pub mod server;
 
-const static NAME: &str = "LentO'Chka";
+const NAME: &str = "LentO'Chka";
 
 fn nvs_get_string(key: &str, nvs: EspNvsPartition<NvsDefault>) -> String {
     let mut buffer: [u8; 128] = [0; 128];
@@ -32,12 +30,12 @@ fn nvs_get_string(key: &str, nvs: EspNvsPartition<NvsDefault>) -> String {
 
 fn main() -> anyhow::Result<()> {
     esp_idf_hal::sys::link_patches();
-    let sys_loop = EspSystemEventLoop::take()?;
+    //let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let peripherals = Peripherals::take()?;
 
     // led initialization
-    let timer_config = TimerConfig::new().frequency(25.kHz().into());
+    let timer_config = TimerConfig::new().resolution(esp_idf_hal::ledc::Resolution::Bits10).frequency(15.kHz().into());
 
     let ledc_timer_driver_b = LedcTimerDriver::new(peripherals.ledc.timer0, &timer_config)?;
     let ledc_timer_driver_r = LedcTimerDriver::new(peripherals.ledc.timer1, &timer_config)?;
@@ -46,19 +44,19 @@ fn main() -> anyhow::Result<()> {
     let channel_b = LedcDriver::new(
         peripherals.ledc.channel0,
         ledc_timer_driver_b,
-        peripherals.pins.gpio2,
+        peripherals.pins.gpio0,
     )?;
 
     let channel_r = LedcDriver::new(
         peripherals.ledc.channel1,
         ledc_timer_driver_r,
-        peripherals.pins.gpio3,
+        peripherals.pins.gpio1,
     )?;
 
     let channel_g = LedcDriver::new(
         peripherals.ledc.channel2,
         ledc_timer_driver_g,
-        peripherals.pins.gpio10,
+        peripherals.pins.gpio12,
     )?;
 
     let controller = Arc::new(Mutex::new(RgbControl::new(
@@ -72,83 +70,89 @@ fn main() -> anyhow::Result<()> {
     controller_lock.init()?;
     drop(controller_lock);
 
-    let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
-    server
-        .connect(
-            sys_loop,
-            ClientConfiguration {
-                ssid: nvs_get_string("ssid", nvs.clone())
-                    .as_str()
-                    .try_into()
-                    .unwrap_or_default(),
-                password: nvs_get_string("password", nvs.clone())
-                    .as_str()
-                    .try_into()
-                    .unwrap_or_default(),
-                ..Default::default()
-            },
-        )
-        .unwrap_or_else(|op| println!("Wi-Fi connection error: {op}. I sorry about that..."));
+  //  let mut server = Server::new(sys_loop.clone(), peripherals.modem)?;
+  //  server
+  //      .connect(
+  //          sys_loop,
+  //          ClientConfiguration {
+  //              ssid: nvs_get_string("ssid", nvs.clone())
+  //                  .as_str()
+  //                  .try_into()
+  //                  .unwrap_or_default(),
+  //              password: nvs_get_string("password", nvs.clone())
+  //                  .as_str()
+  //                  .try_into()
+  //                  .unwrap_or_default(),
+  //              ..Default::default()
+  //          },
+  //      )
+  //      .unwrap_or_else(|op| println!("Wi-Fi connection error: {op}. I sorry about that..."));
 
-    server.handle_response(controller.clone())?;
+  //  server.handle_response(controller.clone())?;
 
-    let mut nvs_handle = EspNvs::new(nvs.clone(), "wifi", true)?;
+  //  let mut nvs_handle = EspNvs::new(nvs.clone(), "wifi", true)?;
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+
     loop {
-        FreeRtos::delay_ms(10);
+        if !handle.has_data_left().unwrap_or_default() {
+            FreeRtos::delay_ms(5);
+            let controller = controller.clone();
+            if let Ok(mut lock) = controller.try_lock() {
+                lock.update()?;
+            };
+        }
         let mut buffer = String::new();
-        let stdin = std::io::stdin();
-        let mut handle = stdin.lock();
-
         match handle.read_line(&mut buffer) {
             Ok(_) => {
-                let mut split = buffer.split_whitespace();
-                let command = split.next().unwrap_or_default();
-                let trailing = split.collect::<Vec<&str>>().join(" ");
-                let controller_clone = controller.clone();
-                let command_result: anyhow::Result<()> = try {
-                    match command {
-                        "wifi" | "wifisetup" | "ws" => {
-                            let ssid = parse_argument(trailing.as_str(), 0)?;
-                            let password = parse_argument(trailing.as_str(), 1)?;
-                            nvs_handle.set_str("ssid", &ssid)?;
-                            nvs_handle.set_str("password", &password)?;
-                            println!("Settings saved! Please restart device to apply changes!");
-                        }
-                        "rgbcolor" | "color" | "setcolor" | "clr" => {
-                            let color =
-                                u32::from_str_radix(&parse_argument(trailing.as_str(), 0)?, 16)?;
-                            let mut controller_lock = controller_clone.lock().unwrap();
-                            controller_lock.set_color(RGBLedColor::new_from_u32(color))?;
-                            println!("Color set");
-                        },
-                        "name" => {
-                            println!("name: {NAME}")
-                        }
-                        "restart" | "reboot" => {
-                           esp_idf_hal::reset::restart(); 
-                        }
-                        _ => {
-                            println!("Unknown command {command}")
+                match serde_json::from_str::<Request>(&buffer) {
+                    Ok(data) => {
+                        let controller = controller.clone();
+                        let mut controller_lock = controller.lock().unwrap();
+                        match data {
+                            Request::GetEffects => {
+                                let json =
+                                    serde_json::to_string(&controller_lock.get_effects_name())
+                                        .unwrap();
+                                println!("{json}");
+                            }
+                            Request::GetEffect => {
+                                let json =
+                                   serde_json::to_string(&controller_lock.get_effect_name())
+                                        .unwrap();
+                                println!("{json}");
+                            }
+                            Request::GetParameters => {
+                                let json =
+                                    serde_json::to_string(&controller_lock.get_effect_options())
+                                        .unwrap();
+                                println!("{json}");
+                            }
+                            Request::GetName => {
+                                let json = serde_json::to_string(&NAME).unwrap();
+                                println!("{json}");
+                            }
+                            Request::SetEffect(index) => {
+                                let json =
+                                    serde_json::to_string(&controller_lock.set_effect(index).is_ok()).unwrap();
+                                println!("{json}");
+                            }
+                            Request::SetOption(name, parameter_type) => {
+                                // TODO: error handling for this request
+                                let json = serde_json::to_string(&controller_lock.set_effect_parameter(&name, parameter_type)).unwrap();
+                                println!("{json}");
+                            }
                         }
                     }
-                };
-
-                if let Err(error) = command_result {
-                    println!("Error executing command {command}: {error}");
+                    Err(e) => println!("Failed to parse JSON: {}", e),
                 }
             }
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::WouldBlock
-                | std::io::ErrorKind::TimedOut
-                | std::io::ErrorKind::Interrupted => {
-                    log::info!("Error: {e}\r\n");
-                    FreeRtos::delay_ms(10);
-                    continue;
-                }
-                _ => {
-                    log::info!("Error: {e}\r\n");
-                    continue;
-                }
+            Err(_) => {
+                FreeRtos::delay_ms(5);
+                let controller = controller.clone();
+                if let Ok(mut lock) = controller.try_lock() {
+                    lock.update()?;
+                };
             },
         }
     }
