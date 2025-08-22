@@ -44,19 +44,19 @@ fn main() -> anyhow::Result<()> {
     let channel_b = LedcDriver::new(
         peripherals.ledc.channel0,
         ledc_timer_driver_b,
-        peripherals.pins.gpio2,
+        peripherals.pins.gpio0,
     )?;
 
     let channel_r = LedcDriver::new(
         peripherals.ledc.channel1,
         ledc_timer_driver_r,
-        peripherals.pins.gpio3,
+        peripherals.pins.gpio1,
     )?;
 
     let channel_g = LedcDriver::new(
         peripherals.ledc.channel2,
         ledc_timer_driver_g,
-        peripherals.pins.gpio10,
+        peripherals.pins.gpio12,
     )?;
 
     let controller = Arc::new(Mutex::new(RgbControl::new(
